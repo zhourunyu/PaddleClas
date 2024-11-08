@@ -597,7 +597,8 @@ class Engine(object):
         if self.config["Global"].get("export_for_fd",
                                      False) or uniform_output_enabled:
             dst_path = os.path.join(os.path.dirname(save_path), 'inference.yml')
-            dump_infer_config(self.config, dst_path)
+            dump_infer_config(self.config, dst_path,
+                              self.config["Global"]["image_shape"])
         logger.info(
             f"Export succeeded! The inference model exported has been saved in \"{save_path}\"."
         )

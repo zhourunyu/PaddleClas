@@ -232,7 +232,7 @@ def setup_orderdict():
     yaml.add_representer(OrderedDict, represent_dictionary_order)
 
 
-def dump_infer_config(inference_config, path):
+def dump_infer_config(inference_config, path, infer_shape):
     setup_orderdict()
     infer_cfg = OrderedDict()
     config = copy.deepcopy(inference_config)
@@ -249,40 +249,26 @@ def dump_infer_config(inference_config, path):
         transforms.append({"ToCHWImage": None})
     else:
         logger.error("This config does not support dump transform config!")
-    transform = next((item for item in transforms if 'CropImage' in item), None)
-    if transform:
-        dynamic_shapes = transform["CropImage"]["size"]
-    else:
-        transform = next((item for item in transforms
-                          if 'ResizeImage' in item), None)
-        if transform:
-            if isinstance(transform["ResizeImage"]["size"], list):
-                dynamic_shapes = transform["ResizeImage"]["size"][0]
-            elif isinstance(transform["ResizeImage"]["size"], int):
-                dynamic_shapes = transform["ResizeImage"]["size"]
-            else:
-                raise ValueError(
-                    "ResizeImage size must be either a list or an int.")
-        else:
-            raise ValueError("No valid transform found.")
+
     # Configuration required config for high-performance inference.
-    if config["Global"].get("hpi_config_path", None):
-        hpi_config = convert_to_dict(
-            parse_config(config["Global"]["hpi_config_path"]))
-        if hpi_config["Hpi"]["backend_config"].get("paddle_tensorrt", None):
-            hpi_config["Hpi"]["backend_config"]["paddle_tensorrt"][
-                "dynamic_shapes"]["x"] = [[
-                    1, 3, dynamic_shapes, dynamic_shapes
-                ] for i in range(3)]
-            hpi_config["Hpi"]["backend_config"]["paddle_tensorrt"][
-                "max_batch_size"] = 1
-        if hpi_config["Hpi"]["backend_config"].get("tensorrt", None):
-            hpi_config["Hpi"]["backend_config"]["tensorrt"]["dynamic_shapes"][
-                "x"] = [[1, 3, dynamic_shapes, dynamic_shapes]
-                        for i in range(3)]
-            hpi_config["Hpi"]["backend_config"]["tensorrt"][
-                "max_batch_size"] = 1
-        infer_cfg["Hpi"] = hpi_config["Hpi"]
+    if config["Global"].get("uniform_output_enabled"):
+        infer_shape_with_batch = [[1] + infer_shape, [1] + infer_shape,
+                                  [8] + infer_shape]
+
+        dynamic_shapes = {"x": infer_shape_with_batch}
+
+        backend_keys = ['paddle_infer', 'tensorrt']
+        hpi_config = {
+            "backend_configs": {
+                key: {
+                    "dynamic_shapes" if key == "tensorrt" else
+                    "trt_dynamic_shapes": dynamic_shapes
+                }
+                for key in backend_keys
+            }
+        }
+
+        infer_cfg["Hpi"] = hpi_config
     for transform in transforms:
         if "NormalizeImage" in transform:
             transform["NormalizeImage"]["channel_num"] = 3
@@ -300,7 +286,9 @@ def dump_infer_config(inference_config, path):
     if config.get("Infer"):
         postprocess_dict = config["Infer"]["PostProcess"]
 
-        with open(postprocess_dict["class_id_map_file"], 'r') as f:
+        with open(
+                postprocess_dict["class_id_map_file"], 'r',
+                encoding="utf-8") as f:
             label_id_maps = f.readlines()
         label_names = []
         for line in label_id_maps:
