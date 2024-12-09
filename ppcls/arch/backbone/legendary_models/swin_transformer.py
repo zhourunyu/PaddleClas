@@ -280,8 +280,8 @@ class WindowAttention(nn.Layer):
 
             if mask is not None:
                 nW = mask.shape[0]
-                attn = attn.reshape([B_ // nW, nW, self.num_heads, N, N
-                                    ]) + mask.unsqueeze(1).unsqueeze(0)
+                mask = mask.reshape((1, nW, 1, N, N)).expand((-1, -1, self.num_heads, -1, -1))
+                attn = attn.reshape([B_ // nW, nW, self.num_heads, N, N]) + mask
                 attn = attn.reshape([B_, self.num_heads, N, N])
             attn = self.softmax(attn)
             attn = self.attn_drop(attn)
@@ -396,7 +396,9 @@ class SwinTransformerBlock(nn.Layer):
             mask_windows = window_partition(img_mask, self.window_size)
             mask_windows = mask_windows.reshape(
                 (-1, self.window_size * self.window_size))
-            attn_mask = mask_windows.unsqueeze(1) - mask_windows.unsqueeze(2)
+            attn_mask = mask_windows.unsqueeze(1).expand(
+                (-1, self.window_size * self.window_size, -1))
+            attn_mask = attn_mask - mask_windows.unsqueeze(2)
             attn_mask = masked_fill(attn_mask, attn_mask != 0, float(-100.0))
             attn_mask = masked_fill(attn_mask, attn_mask == 0, float(0.0))
         else:
